@@ -1,0 +1,94 @@
+# Swarm Lab -- a sealed, one-command agent-swarm range.
+#
+#   docker compose up --build --scale agent=6
+#   open http://localhost:8899            # live web UI: watch the swarm coordinate
+#   docker compose run --rm detect        # or score the rendezvous signatures on the CLI
+#   docker compose down -v                # tear everything down
+#
+# The `internal` network has NO route off the host: agents can reach only the board,
+# the decoy request logger, and the local model. The quiz tools use only the board;
+# the decoy does not intercept arbitrary network traffic.
+
+name: swarm-lab
+
+networks:
+  internal:
+    internal: true      # no egress: agents cannot reach the real internet
+  egress: {}            # only the model server uses this, to pull the model once
+  web: {}               # host-facing: ONLY the dashboard, so your browser can reach it
+                        # (an internal-only container cannot publish a host port)
+
+volumes:
+  ollama: {}
+
+services:
+  ollama:
+    image: ollama/ollama@sha256:684d8674b4315fa18f4f0e973a118ec2652ed96f67563277839985175858e0ba
+    networks: [internal, egress]
+    volumes: [ollama:/root/.ollama]
+    healthcheck:
+      test: ["CMD", "ollama", "list"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+
+  # pulls the model once (the server, on the egress net, does the download), then exits
+  ollama-init:
+    image: ollama/ollama@sha256:684d8674b4315fa18f4f0e973a118ec2652ed96f67563277839985175858e0ba
+    networks: [internal]
+    environment:
+      OLLAMA_HOST: "ollama:11434"
+    depends_on:
+      ollama: {condition: service_healthy}
+    entrypoint: ["sh", "-c", "ollama pull ${LAB_MODEL:-qwen2.5:0.5b-instruct}"]
+    restart: "no"
+
+  board:
+    build: .
+    command: ["python", "board_server.py", "--pool", "24", "--rounds", "4"]
+    networks: [internal]
+    environment:
+      LAB_MODEL: "${LAB_MODEL:-qwen2.5:0.5b-instruct}"   # initial model; the dashboard can change it live
+    volumes: ["./data:/data"]
+
+  # live web UI -- open http://localhost:8899 to watch the swarm coordinate in real time.
+  # Local control panel. It reads logs and changes board configuration.
+  # Internal networking reaches the board; web networking publishes a loopback-only port.
+  dashboard:
+    build: .
+    command: ["python", "dashboard.py", "--host", "0.0.0.0"]
+    networks: [internal, web]            # internal: reach the board · web: publish to the host
+    ports: ["127.0.0.1:8899:8899"]       # only the local browser can connect
+    environment:
+      BOARD_URL: "http://board:8080"
+    volumes: ["./data:/data"]
+    depends_on:
+      board: {condition: service_started}
+
+  decoy:
+    build: .
+    command: ["python", "decoy_server.py"]
+    networks: [internal]
+    volumes: ["./data:/data"]
+
+  agent:
+    build: .
+    command: ["python", "agent.py"]
+    networks: [internal]
+    environment:
+      BOARD_URL:  "http://board:8080"
+      DECOY_URL:  "http://decoy:8081"
+      OLLAMA_URL: "http://ollama:11434"
+      LAB_MODEL:  "${LAB_MODEL:-qwen2.5:0.5b-instruct}"
+      ROUNDS:     "4"
+    depends_on:
+      board:       {condition: service_started}
+      ollama-init: {condition: service_completed_successfully}
+
+  # on-demand: score the run.  docker compose run --rm detect
+  detect:
+    build: .
+    command: ["python", "detect.py", "/data/board_events.jsonl"]
+    networks: [internal]
+    volumes: ["./data:/data"]
+    profiles: ["tools"]

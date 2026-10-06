@@ -1,0 +1,14 @@
+data/
+**/__pycache__/
+*.pyc
+.git/
+.env
+.env.*
+*.pem
+*.key
+*api-key*.txt
+*openrouter-key*.txt
+secrets/
+docs/
+runs/
+tests/

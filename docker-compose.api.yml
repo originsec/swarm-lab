@@ -1,0 +1,26 @@
+# Optional API mode: use OpenRouter instead of local Ollama.
+#
+#   export LAB_API_KEY=sk-or-...         # OpenRouter API key
+#   export LAB_API_MODEL=openai/gpt-4o-mini     # optional (default: openai/gpt-4o-mini)
+#   export LAB_API_BASE=https://openrouter.ai/api/v1   # optional
+#   docker compose -f docker-compose.yml -f docker-compose.api.yml up --build --scale agent=4
+#
+# NOTE ON THE SEAL: this gives the AGENTS egress to the model provider — so it is NOT the
+# sealed, no-internet default. Quiz tools still act only on the local board;
+# hosted model prompts leave the host. The decoy does not proxy or intercept requests.
+# Use the plain `docker compose up` (no override) for the fully sealed, local, key-free lab.
+
+services:
+  board:
+    environment:
+      LAB_API_KEY: "${LAB_API_KEY:-}"
+      LAB_API_BASE: "${LAB_API_BASE:-https://openrouter.ai/api/v1}"
+      LAB_API_MODEL: "${LAB_API_MODEL:-openai/gpt-4o-mini}"
+      LAB_ALLOWED_API_BASES: "${LAB_ALLOWED_API_BASES:-https://openrouter.ai/api/v1}"
+  agent:
+    networks: [internal, egress]          # egress so the agents can reach the API provider
+    environment:
+      LAB_API_KEY:   "${LAB_API_KEY:-}"
+      LAB_API_BASE:  "${LAB_API_BASE:-https://openrouter.ai/api/v1}"
+      LAB_API_MODEL: "${LAB_API_MODEL:-openai/gpt-4o-mini}"
+      LAB_ALLOWED_API_BASES: "${LAB_ALLOWED_API_BASES:-https://openrouter.ai/api/v1}"

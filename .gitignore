@@ -1,0 +1,14 @@
+data/
+.matrix.lock
+__pycache__/
+*.py[cod]
+.git/
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*api-key*.txt
+*openrouter-key*.txt
+secrets/
+.pytest_cache/
